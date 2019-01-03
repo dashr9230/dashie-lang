@@ -4,7 +4,10 @@
 #include <fstream>
 #include <vector>
 
-typedef int(*PFNFUNCTION)(std::string);
+#include <Windows.h>
+
+class Parameters;
+typedef int(*PFNFUNCTION)(Parameters);
 
 struct tagFunctions
 {
@@ -12,38 +15,99 @@ struct tagFunctions
 	PFNFUNCTION pfnHandle;
 };
 
-static int funcPrint(std::string strParams)
-{
-	printf("%s\n", strParams.c_str());
-	return 0;
-}
-
-tagFunctions g_tFunctions[] = 
-{
-	{"print", funcPrint}
-};
-
 void OutError(std::string strOutput)
 {
 	std::cout << "Dashie Error: " << strOutput.c_str() << "\n";
 }
 
-std::string ReadStringParam(std::string strParameters)
+void OutWarning(std::string strOutput)
 {
-	if (strParameters.empty())
-		return "";
-
-	size_t iStart = strParameters.find_first_of('\"'),
-		iEnd = strParameters.find_first_of('\"', iStart+1);
-
-	std::string strString;
-	if (iStart != std::string::npos && iEnd != std::string::npos)
-		strString = strParameters.substr(iStart+1, iEnd-2);
-	else
-		OutError("Failed to parse string parameter");
-
-	return strString;
+	std::cout << "Dashie Warning: " << strOutput.c_str() << "\n";
 }
+
+class Parameters
+{
+private:
+	std::vector<std::string> m_Parameters;
+	std::string m_strFullParameters;
+
+	void SplitIt()
+	{
+		// Add the full parameters to 0th index.
+		m_Parameters.push_back(m_strFullParameters);
+
+		size_t iPos = 0;
+		std::string strParametersCopy = m_strFullParameters;
+		while ((iPos = strParametersCopy.find(',')) != std::string::npos)
+		{
+			m_Parameters.push_back(strParametersCopy.substr(0, iPos));
+			strParametersCopy.erase(0, iPos + 1);
+		}
+
+		m_Parameters.push_back(strParametersCopy);
+	}
+public:
+	Parameters(std::string strParameters)
+	{
+		m_strFullParameters = strParameters;
+		SplitIt();
+	}
+
+	template<typename T>
+	T GetNumber(size_t iParameter)
+	{
+		try {
+			return (T)std::atoi(m_Parameters.at(iParameter).c_str());
+		}
+		catch (std::out_of_range& oor)
+		{
+			OutWarning("Parameter is out of range.");
+			return (T)0;
+		}
+	}
+
+	const char* GetString(size_t iParameter)
+	{
+		std::string str = "";
+		try {
+			str = m_Parameters.at(iParameter);
+		}
+		catch (std::out_of_range& oor)
+		{
+			OutWarning("Parameter is out of range.");
+			return str.c_str();
+		}
+
+		size_t iStart = str.find_first_of('\"'),
+			iEnd = str.find_first_of('\"', iStart + 1);
+
+		std::string strResult;
+		if (iStart != std::string::npos && iEnd != std::string::npos)
+			strResult = str.substr(iStart + 1, iEnd - 2);
+		else
+			OutError("Failed to parse string parameter");
+
+		return strResult.c_str();
+	}
+};
+
+static int funcPrint(Parameters params)
+{
+	printf("%s\n", params.GetString(1));
+	return 0;
+}
+
+static int funcMessageBox(Parameters params)
+{
+	MessageBoxA(0, params.GetString(1), params.GetString(2), params.GetNumber<UINT>(3));
+	return 0;
+}
+
+tagFunctions g_tFunctions[] = 
+{
+	{"print", funcPrint},
+	{"MessageBox", funcMessageBox}
+};
 
 bool ExecDashie(std::string strFileName)
 {
@@ -72,13 +136,10 @@ bool ExecDashie(std::string strFileName)
 			en = vecFunctions.end();
 		for (; be != en; ++be)
 		{
-			if (strPrefix.compare((const char*)be->szName.c_str()) != std::string::npos)
+			if(strPrefix.compare(be->szName.c_str()) == 0 && be->pfnHandle != nullptr)
 			{
-				if (*be->pfnHandle != nullptr)
-				{
-					std::string strParameters = strLine.substr(strPrefix.length(), std::string::npos);
-					be->pfnHandle(ReadStringParam(strParameters));
-				}
+				Parameters params(strLine.substr(strPrefix.length(), std::string::npos));
+				be->pfnHandle(params);
 			}
 		}
 	}
@@ -102,7 +163,7 @@ bool CheckExt(std::string strFileName)
 
 int main(int argc, char *argv[])
 {
-	std::cout << "Dashie Language Project (Version: 0.1) by RD42\n";
+	std::cout << "Dashie Project (Version: 0.2) by RD42\n";
 	std::cout << "Github: https://github.com/dashr9230 \n\n";
 
 	if (argc > 1)
